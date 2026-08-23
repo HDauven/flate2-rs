@@ -115,6 +115,35 @@ impl InflateBackend for Inflate {
         }
     }
 
+    // Use zlib-rs's native uninitialized output support instead of the
+    // default implementation, which zeroes the entire output buffer.
+    fn decompress_uninit(
+        &mut self,
+        input: &[u8],
+        output: &mut [MaybeUninit<u8>],
+        flush: FlushDecompress,
+    ) -> Result<Status, DecompressError> {
+        let flush = match flush {
+            FlushDecompress::None => InflateFlush::NoFlush,
+            FlushDecompress::Sync => InflateFlush::SyncFlush,
+            FlushDecompress::Finish => InflateFlush::Finish,
+        };
+
+        let total_in_start = self.inner.total_in();
+        let total_out_start = self.inner.total_out();
+
+        let result = self.inner.decompress_uninit(input, output, flush);
+
+        self.total_in += self.inner.total_in() - total_in_start;
+        self.total_out += self.inner.total_out() - total_out_start;
+
+        match result {
+            Ok(status) => Ok(status.into()),
+            Err(InflateError::NeedDict { dict_id }) => crate::mem::decompress_need_dict(dict_id),
+            Err(_) => self.decompress_error(),
+        }
+    }
+
     fn reset(&mut self, zlib_header: bool) {
         self.total_in = 0;
         self.total_out = 0;
@@ -195,6 +224,36 @@ impl DeflateBackend for Deflate {
         let total_out_start = self.inner.total_out();
 
         let result = self.inner.compress(input, output, flush);
+
+        self.total_in += self.inner.total_in() - total_in_start;
+        self.total_out += self.inner.total_out() - total_out_start;
+
+        match result {
+            Ok(status) => Ok(status.into()),
+            Err(_) => self.compress_error(),
+        }
+    }
+
+    // Use zlib-rs's native uninitialized output support instead of the
+    // default implementation, which zeroes the entire output buffer.
+    fn compress_uninit(
+        &mut self,
+        input: &[u8],
+        output: &mut [MaybeUninit<u8>],
+        flush: FlushCompress,
+    ) -> Result<Status, CompressError> {
+        let flush = match flush {
+            FlushCompress::None => DeflateFlush::NoFlush,
+            FlushCompress::Partial => DeflateFlush::PartialFlush,
+            FlushCompress::Sync => DeflateFlush::SyncFlush,
+            FlushCompress::Full => DeflateFlush::FullFlush,
+            FlushCompress::Finish => DeflateFlush::Finish,
+        };
+
+        let total_in_start = self.inner.total_in();
+        let total_out_start = self.inner.total_out();
+
+        let result = self.inner.compress_uninit(input, output, flush);
 
         self.total_in += self.inner.total_in() - total_in_start;
         self.total_out += self.inner.total_out() - total_out_start;
