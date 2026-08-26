@@ -3,14 +3,9 @@
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use std::mem::MaybeUninit;
 
-fn initialized_prefix(bytes: &[MaybeUninit<u8>], len: usize) -> &[u8] {
-    // SAFETY: The compression APIs report the number of bytes they initialized.
-    unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast(), len) }
-}
-
 #[test]
 fn uninit_compression_matches_initialized_compression() {
-    let input = b"hello world ".repeat(100);
+    let input = highly_compressible_input();
 
     let mut initialized = vec![0; 4096];
     let mut expected = Compress::new(Compression::default(), true);
@@ -35,7 +30,8 @@ fn uninit_compression_matches_initialized_compression() {
 
 #[test]
 fn uninit_decompression_matches_initialized_decompression() {
-    let input = b"hello world ".repeat(100);
+    let input = highly_compressible_input();
+
     let mut compressed = Vec::with_capacity(4096);
     Compress::new(Compression::default(), true)
         .compress_vec(&input, &mut compressed, FlushCompress::Finish)
@@ -60,4 +56,13 @@ fn uninit_decompression_matches_initialized_decompression() {
         initialized_prefix(&uninitialized, actual.total_out() as usize),
         &initialized[..expected.total_out() as usize]
     );
+}
+
+fn highly_compressible_input() -> Vec<u8> {
+    b"hello world ".repeat(100)
+}
+
+fn initialized_prefix(bytes: &[MaybeUninit<u8>], len: usize) -> &[u8] {
+    // SAFETY: The compression APIs report the number of bytes they initialized.
+    unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast(), len) }
 }
