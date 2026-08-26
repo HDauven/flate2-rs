@@ -182,6 +182,14 @@ impl<W: Write, D: Ops> Writer<W, D> {
     }
 
     pub fn finish(&mut self) -> io::Result<()> {
+        self.finish_inner(false)
+    }
+
+    pub(crate) fn drain(&mut self) -> io::Result<()> {
+        self.finish_inner(true)
+    }
+
+    fn finish_inner(&mut self, allow_incomplete: bool) -> io::Result<()> {
         if self.finished {
             return self.dump();
         }
@@ -199,6 +207,9 @@ impl<W: Write, D: Ops> Writer<W, D> {
                 return self.dump();
             }
             if before == self.data.total_out() {
+                if allow_incomplete {
+                    return Ok(());
+                }
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "incomplete deflate stream",
