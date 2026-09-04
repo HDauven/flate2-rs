@@ -724,6 +724,32 @@ mod tests {
         assert!(dst.starts_with(string));
     }
 
+    #[cfg(all(not(feature = "any_zlib"), feature = "miniz_oxide"))]
+    #[test]
+    fn reset_clears_miniz_oxide_dictionary() {
+        let secret = [b'A'; 32 * 1024];
+        let mut victim_stream = Vec::with_capacity(secret.len() + 5);
+        victim_stream.extend_from_slice(&[0x01, 0x00, 0x80, 0xff, 0x7f]);
+        victim_stream.extend_from_slice(&secret);
+
+        let mut decoder = Decompress::new(false);
+        let mut victim_output = [0; 32 * 1024];
+        decoder
+            .decompress(&victim_stream, &mut victim_output, FlushDecompress::None)
+            .unwrap();
+        assert_eq!(victim_output, secret);
+
+        decoder.reset(false);
+
+        let mut attacker_output = [0; 258];
+        let _ = decoder.decompress(
+            &[0x1b, 0xbd, 0xff, 0x1f, 0x00],
+            &mut attacker_output,
+            FlushDecompress::None,
+        );
+        assert!(!attacker_output.contains(&b'A'));
+    }
+
     #[cfg(feature = "any_zlib")]
     #[test]
     fn test_gzip_flate() {
