@@ -728,8 +728,16 @@ mod tests {
     #[test]
     fn reset_clears_miniz_oxide_dictionary() {
         let secret = [b'A'; 32 * 1024];
+        // A raw DEFLATE stream containing one final, uncompressed (stored) block:
+        // 0x01 sets BFINAL=1 and BTYPE=00, followed by padding to a byte boundary.
+        // LEN is the payload length; NLEN is its one's complement.
+        // The payload fills the entire 32 KiB dictionary with secret bytes.
+        let len = secret.len() as u16;
+        let nlen = !len;
         let mut victim_stream = Vec::with_capacity(secret.len() + 5);
-        victim_stream.extend_from_slice(&[0x01, 0x00, 0x80, 0xff, 0x7f]);
+        victim_stream.push(0x01);
+        victim_stream.extend_from_slice(&len.to_le_bytes());
+        victim_stream.extend_from_slice(&nlen.to_le_bytes());
         victim_stream.extend_from_slice(&secret);
 
         let mut decoder = Decompress::new(false);
@@ -737,7 +745,10 @@ mod tests {
         decoder
             .decompress(&victim_stream, &mut victim_output, FlushDecompress::None)
             .unwrap();
-        assert_eq!(victim_output, secret);
+        assert_eq!(
+            victim_output, secret,
+            "the first stream must fill the 32 KiB dictionary with secret bytes"
+        );
 
         decoder.reset(false);
 
@@ -747,7 +758,12 @@ mod tests {
             &mut attacker_output,
             FlushDecompress::None,
         );
-        assert!(!attacker_output.contains(&b'A'));
+        assert!(
+            !attacker_output.contains(&b'A'),
+            "reset must clear the dictionary: a distance-32768 match leaked bytes \
+             from the previous stream; both FullReset and the current upstream \
+             reset() prevent this, but MinReset does not"
+        );
     }
 
     #[cfg(feature = "any_zlib")]
